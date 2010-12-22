@@ -1,0 +1,17 @@
+
+readable - A port of the Arc90 readability Javascript rules to Python:
+
+ http://lab.arc90.com/experiments/readability
+
+License: Apache 2.0.
+
+Depends on the Python lxml module.
+
+Currently only the article body extraction is implemented, and there is 
+a slight delta between the output produced by the JS version due to the
+differences in how DOM is represented and manipulated between the browser DOM
+and Python's lxml.  For instance, lxml represents text as attributes on nodes
+rather than nodes themselves.  These differences complicated the translation of
+the algorithm a bit.
+
+
