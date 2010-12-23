@@ -18,7 +18,7 @@ Author: Patrick Hensley <spaceboy@indirect.com>
 License: http://www.apache.org/licenses/LICENSE-2.0
 """
 
-__version__ = '0.1'
+__version__ = '0.2'
 UPSTREAM_VERSION = '1.7.1'      # cloned 11/14/2010
 
 
@@ -86,13 +86,24 @@ class NodeIter(object):
     def __iter__(self):
         return self
 
+    def size(self):
+        return len(self.nodes)
+
+    def backup(self):
+        self.idx -= 1
+
     def next(self):
         if self.idx >= len(self.nodes):
             raise StopIteration()
         node = self.nodes[self.idx]
         self.current = node
+        idx = self.idx
         self.idx += 1
-        return self.idx, node
+        return idx, node
+
+    def refresh(self):
+        "Keep pointer in same place but rebuild descendants list."
+        self.nodes = list(self.root.iterdescendants())
 
     def remove(self):
         """
@@ -104,7 +115,6 @@ class NodeIter(object):
         if curr is None:
             return
         curr.getparent().remove(curr)
-        oldlen = len(self.nodes)
         self.nodes = list(self.root.iterdescendants())
         self.idx -= 1
 
@@ -171,7 +181,7 @@ class Readable(object):
     def make_cleaner(self):
         "Construct an object to clean out unwanted stuff from a node."
         opts = dict(scripts=True, javascript=True, comments=True,
-            style=True, links=True, meta=False, page_structure=False, 
+            style=False, links=True, meta=False, page_structure=False, 
             processing_instructions=True, embedded=False, frames=False, 
             forms=False, annoying_tags=False, safe_attrs_only=False)
         return lxml.html.clean.Cleaner(**opts)
@@ -208,6 +218,7 @@ class Readable(object):
     # line 353
     # getArticleFooter
 
+
     # line 375
     def prep_document(self, data):
         "Prep the document for extraction"
@@ -217,7 +228,6 @@ class Readable(object):
         cleaner(tree)
         body = tree.find('body')
         if body is None:
-            self.log(lxml.html.tostring(tree))
             body = lxml.html.Element('body')
             for n in tree.getchildren():
                 body.append(n)
@@ -230,6 +240,44 @@ class Readable(object):
                 n.getparent().remove(n)
 
         return self.convert_brs(body)
+
+
+    def convert_brs(self, node, depth=0):
+        "Convert all text that is siblings of <br> tags to <p>"
+        # TODO: i prefer doing dom-based replacement of brs to using
+        # regexps, but this needs to be simplified.
+        children = node.getchildren()
+        has_br = 'br' in [n.tag for n in children]
+        if has_br:
+            newn = lxml.html.Element(node.tag, node.attrib)
+            if node.text and node.text.strip():
+                c = lxml.html.Element('p')
+                c.text = node.text
+                node.text = ''
+                newn.append(c)
+            for n in children:
+                if n.tag == 'br':
+                    # snip the trailing text from the br
+                    if n.tail and n.tail.strip():
+                        c = lxml.html.Element('p')
+                        c.text = n.tail
+                        newn.append(c)
+                    continue
+                newn.append(n)
+                if n.tail and n.tail.strip():
+                    c = lxml.html.Element('p')
+                    c.text = n.tail
+                    n.tail = ''
+                    newn.append(c)
+            if node.tail and node.tail.strip():
+                c = lxml.html.Element('p')
+                c.text = node.tail
+                newn.append(c)
+            node.getparent().replace(node, newn)
+            node = newn
+        for n in node.getchildren():
+            self.convert_brs(n, depth + 1)
+        return node
 
 
     # line 461 
@@ -257,12 +305,13 @@ class Readable(object):
  
         # line 626: remove extra paragraphs
         for n in content.xpath('.//p'):
-            num_img = n.xpath('.//img')
-            num_embed = n.xpath('.//embed')
-            num_object = n.xpath('.//object')
+            num_img = len(n.xpath('.//img'))
+            num_embed = len(n.xpath('.//embed'))
+            num_object = len(n.xpath('.//object'))
             if num_img == 0 and num_embed == 0 and num_object == 0:
-                if self.get_inner_text(n, 0):
+                if not self.get_inner_text(n, 0):
                     n.getparent().remove(n)
+
         # line 639
         # kill breaks already done above
 
@@ -303,44 +352,6 @@ class Readable(object):
 
 
     # line 720
-    def convert_brs(self, node):
-        "Convert all text that is siblings of <br> tags to <p>"
-        # TODO: i prefer doing dom-based replacement of brs to using
-        # regexps, but this needs to be simplified.
-        children = node.getchildren()
-        has_br = 'br' in [n.tag for n in children]
-        if has_br:
-            newn = lxml.html.Element(node.tag, node.attrib)
-            if node.text and node.text.strip():
-                c = lxml.html.Element('p')
-                c.text = node.text
-                node.text = ''
-                newn.append(c)
-            for n in children:
-                if n.tag == 'br':
-                    # snip the trailing text from the br
-                    if n.tail and n.tail.strip():
-                        c = lxml.html.Element('p')
-                        c.text = n.tail
-                        newn.append(c)
-                    continue
-                newn.append(n)
-                if n.tail and n.tail.strip():
-                    c = lxml.html.Element('p')
-                    c.text = n.tail
-                    n.tail = ''
-                    newn.append(c)
-            if node.tail and node.tail.strip():
-                c = lxml.html.Element('p')
-                c.text = node.tail
-                newn.append(c)
-            node.getparent().replace(node, newn)
-            node = newn
-        for n in node.getchildren():
-            self.convert_brs(n)
-        return node
-
-
     def select_scorable(self, node):
         "Iterate over descendants and select some for scoring."
         to_score = []
@@ -362,10 +373,12 @@ class Readable(object):
                     newn = self.node_copy(n)
                     newn.tag = 'p'
                     n.getparent().replace(n, newn)
-                    to_score.append(n)
+                    nodeiter.backup()
+                    nodeiter.refresh()
                     to_score.append(newn)
                 else:
                     to_score += self._paragraphize_text(n)
+                    nodeiter.refresh()
 
         return to_score
 
@@ -377,24 +390,24 @@ class Readable(object):
         newn = lxml.html.Element(node.tag, node.attrib)
         if node.text:
             el = lxml.html.Element('p')
+            el.set('class', 'readability-styled')
             el.text = node.text
             node.text = ''
             newn.append(el)
-            to_score.append(el)
         for c in node.getchildren():
             newn.append(c)
             if c.tail:
                 el = lxml.html.Element('p')
+                el.set('class', 'readability-styled')
                 el.text = c.tail
                 c.tail = ''
                 newn.append(el)
-                to_score.append(el)
         if node.tail:
             el = lxml.html.Element('p')
+            el.set('class', 'readability-styled')
             el.text = node.tail
             node.tail = ''
             newn.append(el)
-            to_score.append(el)
         node.getparent().replace(node, newn)
         return to_score
 
@@ -501,8 +514,13 @@ class Readable(object):
 
             # line 904
             if append:
+                self.log("Appending node: " + self.get_info(n))
                 if n.tag not in ('div', 'p'):
-                    n.tag = 'div'
+                    self.log("Altering siblingNode of " + n.tag + " to div.")
+                    el = self.node_copy(n)
+                    el.tag = 'div'
+                    n = el
+                n.set('class', '')
                 content.append(n)
 
         self.prep_article(content)
@@ -532,19 +550,12 @@ class Readable(object):
 
 
     # line 999
-    def get_inner_text(self, node, normalize_spaces=1, depth=0):
+    def get_inner_text(self, node, normalize_spaces=1):
         "Recursively retrieve all text from this node."
-        text = ''
-        if node.text:
-            text = ' ' + node.text
-        for n in node.getchildren():
-            text += self.get_inner_text(n, normalize_spaces, depth + 1)
-        if node.tail:
-            text += ' ' + node.tail
-        # run normalize once on final text.
-        if normalize_spaces and not depth:
+        text = node.text_content()
+        if normalize_spaces:
             text = RE_NORMALIZE.sub(' ', text)
-        return text
+        return text.strip()
 
 
     # line 1030
@@ -645,8 +656,7 @@ class Readable(object):
             score = 0
 
             # line 1624
-            msg = 'Cleaning Conditionally ' + str(n) + ' (' + \
-                n.get('class', '') + ':' + n.get('id', '') + ')'
+            msg = 'Cleaning Conditionally ' + self.get_info(n)
             if self.is_readable(n):
                 msg += ' with score %.2f' % n.readable.score
             self.log(msg)
@@ -677,7 +687,6 @@ class Readable(object):
                     to_remove = 1
                 elif len_content < 25 and (num_img == 0 or num_img > 2):
                     to_remove = 1
-                    self.log(lxml.html.tostring(n))
                 elif weight < 25 and link_density > 0.2:
                     to_remove = 1
                 elif weight >= 25 and link_density > 0.5:
