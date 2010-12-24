@@ -1,0 +1,13 @@
+Source: python-readable
+Section: python
+Priority: optional
+Maintainer: Patrick Hensley <spaceboy@indirect.com>
+Build-Depends: debhelper (>= 7.3.5), python-all-dev (>= 2.6), python-all-dbg, python-support (>= 0.7.1), python-setuptools (>= 0.6.10), python-lxml-dbg (>= 2.2)
+Standards-Version: 3.8.3
+Homepage: http://github.com/phensley/python-readable
+
+Package: python-readable
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}, ${python:Depends}, python-lxml (>= 2.2)
+Description: Python port of Arc90's Readability extraction rules.
+

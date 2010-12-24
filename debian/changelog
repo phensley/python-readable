@@ -1,0 +1,12 @@
+python-readable (0.2-1) lucid; urgency=low
+
+  * Bug fixes and cleanups, releasing v0.2.
+  * Pruned .git directory from sdist and re-pushing.
+
+ -- Patrick Hensley <spaceboy@indirect.com>  Fri, 24 Dec 2010 11:03:39 -0500
+
+python-readable (0.1) lucid; urgency=low
+
+  * Initial release.
+
+ -- Patrick Hensley <spaceboy@indirect.com>  Wed, 22 Dec 2010 16:15:29 -0500
